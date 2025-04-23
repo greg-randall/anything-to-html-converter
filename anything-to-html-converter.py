@@ -233,59 +233,6 @@ def compare_texts(original, improved):
         'mismatch_report': '\n'.join(mismatch_report) if mismatch_report else "No content differences found."
     }
 
-def generate_diff_report(original, improved):
-    """Generate a visual diff between original and improved markdown."""
-    diff = difflib.unified_diff(
-        original.splitlines(),
-        improved.splitlines(),
-        lineterm='',
-        n=3
-    )
-    return '\n'.join(diff)
-
-def generate_word_diff(original, improved):
-    """Generate a word-level diff report, ignoring formatting characters."""
-    # Extract words only from both texts
-    original_words = tokenize_text(original)
-    improved_words = tokenize_text(improved)
-    
-    # Compare words and find differences
-    matcher = difflib.SequenceMatcher(None, original_words, improved_words)
-    
-    # Format the diff output
-    diff_lines = []
-    diff_lines.append("===== WORD-LEVEL DIFF =====")
-    diff_lines.append("(-) means removed from original")
-    diff_lines.append("(+) means added in improved version")
-    diff_lines.append("")
-    
-    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-        if tag == 'equal':
-            # Skip showing equal parts to keep output focused on differences
-            if i2 - i1 > 10:  # If more than 10 words are equal, just show summary
-                diff_lines.append(f"    [...{i2-i1} words match...]")
-            else:
-                # Show the matching words
-                for word in original_words[i1:i2]:
-                    diff_lines.append(f"    {word}")
-        elif tag == 'delete':
-            # Words in original but not in improved
-            for word in original_words[i1:i2]:
-                diff_lines.append(f"(-) {word}")
-        elif tag == 'insert':
-            # Words in improved but not in original
-            for word in improved_words[j1:j2]:
-                diff_lines.append(f"(+) {word}")
-        elif tag == 'replace':
-            # Words replaced
-            diff_lines.append("--- Replaced:")
-            for word in original_words[i1:i2]:
-                diff_lines.append(f"(-) {word}")
-            for word in improved_words[j1:j2]:
-                diff_lines.append(f"(+) {word}")
-    
-    return '\n'.join(diff_lines)
-
 def post_process_improved_markdown(markdown_text):
     """
     Perform post-processing on the improved markdown to fix common issues.
@@ -688,10 +635,6 @@ def improve_markdown_with_gpt(api_key, markdown_content):
         print(f"Error using OpenAI API: {e}")
         return None
 
-import os
-import argparse
-# Other needed imports here (such as pypandoc, etc.)
-
 def main():
     parser = argparse.ArgumentParser(description='Convert Word to Markdown and improve formatting')
     parser.add_argument('input_file', help='Path to input Word document')
@@ -754,18 +697,12 @@ def main():
         else:
             print("OCR processing failed. Falling back to pandoc...")
             original_markdown = convert_docx_to_markdown(input_file, args.output)
-            
-        # Always generate a pandoc version for comparison
-        print("Also generating pandoc version for detailed comparison...")
-        pandoc_output = f"{os.path.splitext(args.input_file)[0]}_pandoc.md"
-        pandoc_markdown = convert_docx_to_markdown(input_file, pandoc_output)
     else:
         if args.use_pandoc:
             print(f"Converting {input_file} using pandoc (as requested)...")
         else:
             print(f"Converting {input_file} using pandoc (Mistral API key not provided)...")
         original_markdown = convert_docx_to_markdown(input_file, args.output)
-        pandoc_markdown = original_markdown  # In this case, they're the same
     
     if original_markdown is None:
         print("Conversion failed. Exiting.")
@@ -844,31 +781,17 @@ def main():
         print("\n===== CONTENT DIFFERENCES =====")
         print(comparison_result['mismatch_report'])
     
-    # If we used OCR, also compare pandoc version to final
-    if use_ocr and pandoc_markdown and pandoc_markdown != original_markdown:
-        print("\n===== COMPARING PANDOC VERSION TO FINAL VERSION =====")
-        pandoc_comparison = compare_texts(pandoc_markdown, final_markdown)
-        
-        # Add pandoc comparison results to the report
-        if pandoc_comparison['missing_words']:
-            print("\nWARNING: Words from pandoc version missing in the final version:")
-            for word, count in pandoc_comparison['missing_words'].items():
-                print(f"  - '{word}' appears {count} fewer times")
-        
-        if pandoc_comparison.get('added_words'):
-            print("\nNOTE: Words in final version not in pandoc version:")
-            for word, count in pandoc_comparison['added_words'].items():
-                print(f"  - '{word}' appears {count} more times")
-                
-        if args.detailed_comparison and pandoc_comparison['mismatches']:
-            print("\n===== CONTENT DIFFERENCES (PANDOC VS FINAL) =====")
-            print(pandoc_comparison['mismatch_report'])
+    # No pandoc comparison - removed
     
     if args.show_diff:
-        print("\n===== WORD-LEVEL DIFF =====")
-        print(generate_word_diff(original_markdown, final_markdown))
         print("\n===== UNIFIED LINE DIFF =====")
-        print(generate_diff_report(original_markdown, final_markdown))
+        diff = difflib.unified_diff(
+            original_markdown.splitlines(),
+            final_markdown.splitlines(),
+            lineterm='',
+            n=3
+        )
+        print('\n'.join(diff))
     
     if comparison_result['mismatches']:
         print(f"\nFound {len(comparison_result['mismatches'])} content differences.")
@@ -893,23 +816,6 @@ def main():
                     f.write("\n\n===== ADDED WORDS =====\n\n")
                     for word, count in comparison_result['added_words'].items():
                         f.write(f"  - '{word}' appears {count} more times\n")
-                f.write("\n\n===== WORD-LEVEL DIFF =====\n\n")
-                f.write(generate_word_diff(original_markdown, final_markdown))
-                
-                # Include pandoc comparison in the report if we used OCR
-                if use_ocr and pandoc_markdown and pandoc_markdown != original_markdown:
-                    f.write("\n\n===== PANDOC VS FINAL VERSION COMPARISON =====\n\n")
-                    f.write(pandoc_comparison['mismatch_report'])
-                    if pandoc_comparison['missing_words']:
-                        f.write("\n\n===== MISSING WORDS (FROM PANDOC) =====\n\n")
-                        for word, count in pandoc_comparison['missing_words'].items():
-                            f.write(f"  - '{word}' appears {count} fewer times\n")
-                    if pandoc_comparison.get('added_words'):
-                        f.write("\n\n===== ADDED WORDS (NOT IN PANDOC) =====\n\n")
-                        for word, count in pandoc_comparison['added_words'].items():
-                            f.write(f"  - '{word}' appears {count} more times\n")
-                    f.write("\n\n===== PANDOC VS FINAL WORD-LEVEL DIFF =====\n\n")
-                    f.write(generate_word_diff(pandoc_markdown, final_markdown))
                     
             print(f"\nDetailed comparison report saved to {comparison_report_path}")
         except Exception as e:
