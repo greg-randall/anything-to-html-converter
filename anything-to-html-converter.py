@@ -161,6 +161,30 @@ def find_mismatches(original_tokens, improved_tokens):
     
     return mismatches
 
+def detect_url_to_link_transformation(original_segment, improved_segment):
+    """
+    Detect if a raw URL in the original was transformed into a text link in the improved version.
+    
+    Args:
+        original_segment (list): List of tokens from the original text
+        improved_segment (list): List of tokens from the improved text
+        
+    Returns:
+        bool: True if this appears to be a URL-to-link transformation, False otherwise
+    """
+    # Join the original tokens to check for URL patterns
+    original_text = ' '.join(original_segment)
+    
+    # Simple URL pattern detection (can be expanded for more complex patterns)
+    url_pattern = r'https?|www\.|\.com|\.edu|\.org|\.net|\.gov'
+    
+    # Check if original contains URL-like patterns
+    contains_url = bool(re.search(url_pattern, original_text, re.IGNORECASE))
+    
+    # If the original contains URL-like patterns and the improved version is different,
+    # this might be a URL-to-link transformation
+    return contains_url and original_segment != improved_segment
+
 def show_mismatch_context(original_tokens, improved_tokens, mismatch):
     """Show context around a mismatch, always showing both original and improved versions."""
     result = []
@@ -186,6 +210,13 @@ def show_mismatch_context(original_tokens, improved_tokens, mismatch):
     imp_prefix = improved_tokens[imp_start:mismatch['improved_start']]
     imp_content = improved_tokens[mismatch['improved_start']:mismatch['improved_end']]
     imp_suffix = improved_tokens[mismatch['improved_end']:imp_end]
+    
+    # Check if this might be a URL-to-link transformation
+    is_url_transformation = detect_url_to_link_transformation(orig_content, imp_content)
+    
+    # Add a note if this appears to be a URL transformation
+    if is_url_transformation:
+        result.append("NOTE: This appears to be a URL converted to a text link (expected formatting improvement)")
     
     # Format original line
     prefix_str = ' '.join(orig_prefix)
@@ -503,6 +534,13 @@ def print_mismatch_report(comparison_result, detailed=True):
                 mismatch_header = line
                 i += 1
                 
+                # Check if the next line is a note about URL transformation
+                is_url_transformation = False
+                if i < len(report_lines) and report_lines[i].startswith("NOTE: This appears to be a URL"):
+                    is_url_transformation = True
+                    url_note = report_lines[i]
+                    i += 1
+                
                 # The next two lines should be the original and improved
                 original_line = report_lines[i] if i < len(report_lines) else ""
                 i += 1
@@ -515,7 +553,14 @@ def print_mismatch_report(comparison_result, detailed=True):
                 # Only print this mismatch if we haven't printed it before
                 if fingerprint not in printed_fingerprints:
                     printed_fingerprints.add(fingerprint)
+                    
+                    # Modify the header if this is a URL transformation
+                    if is_url_transformation:
+                        mismatch_header = mismatch_header.replace("Content Difference", "URL-to-Link Transformation")
+                    
                     print(f"\n{mismatch_header}")
+                    if is_url_transformation:
+                        print(url_note)
                     print(original_line)
                     print(improved_line)
             else:
