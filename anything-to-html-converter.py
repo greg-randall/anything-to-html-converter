@@ -16,15 +16,6 @@ logger = logging.getLogger('my-logger')
 logger.propagate = False
 
 
-# Add these imports for LibreOffice conversion
-try:
-    import uno
-    from com.sun.star.beans import PropertyValue
-    UNO_AVAILABLE = True
-except ImportError:
-    UNO_AVAILABLE = False
-
-
 
 def convert_docx_to_markdown(docx_path, output_path):
     """Convert Word document to markdown using pypandoc."""
@@ -119,7 +110,7 @@ def tokenize_text(text):
     tokens = re.findall(r'\b[a-zA-Z0-9]+\b', text)
     
     # Filter out common formatting markers
-    formatting_markers = ['underline', 'bold', 'italic', 'strikethrough', 'highlight']
+    formatting_markers = ['underline', 'bold', 'italic', 'strikethrough', 'highlight', 'br']
     tokens = [token for token in tokens if token.lower() not in formatting_markers]
     
     return tokens
@@ -143,6 +134,30 @@ def find_mismatches(original_tokens, improved_tokens):
                 'improved_start': j1,
                 'improved_end': j2,
             })
+    
+    # Merge adjacent or overlapping mismatches
+    if mismatches:
+        merged_mismatches = [mismatches[0]]
+        for current in mismatches[1:]:
+            previous = merged_mismatches[-1]
+            
+            # Define a threshold for considering mismatches as adjacent
+            # Adjust this value based on your specific needs
+            adjacency_threshold = 5
+            
+            # Check if current mismatch is adjacent to or overlaps with previous mismatch
+            if (current['original_start'] <= previous['original_end'] + adjacency_threshold and 
+                current['improved_start'] <= previous['improved_end'] + adjacency_threshold):
+                # Merge the mismatches
+                previous['original_end'] = max(previous['original_end'], current['original_end'])
+                previous['improved_end'] = max(previous['improved_end'], current['improved_end'])
+                # Take the more specific type if available
+                if current['type'] != 'replace' and previous['type'] == 'replace':
+                    previous['type'] = current['type']
+            else:
+                merged_mismatches.append(current)
+        
+        return merged_mismatches
     
     return mismatches
 
@@ -195,12 +210,26 @@ def compare_texts(original, improved):
     # Find mismatches (case-insensitive comparison of alphanumeric tokens only)
     mismatches = find_mismatches(original_tokens, improved_tokens)
     
+    # Create a hash set to track mismatch fingerprints to avoid duplication
+    reported_fingerprints = set()
+    
     # Prepare mismatch report
     mismatch_report = []
     
     if mismatches:
         mismatch_report.append(f"Found {len(mismatches)} content differences (these should be investigated):")
         for i, mismatch in enumerate(mismatches, 1):
+            # Create a fingerprint for this mismatch
+            orig_content = ' '.join(original_tokens[mismatch['original_start']:mismatch['original_end']]) if mismatch['original_start'] < mismatch['original_end'] else "[[NONE]]"
+            imp_content = ' '.join(improved_tokens[mismatch['improved_start']:mismatch['improved_end']]) if mismatch['improved_start'] < mismatch['improved_end'] else "[[NONE]]"
+            fingerprint = f"{orig_content}|{imp_content}"
+            
+            # Skip if we've already reported this mismatch
+            if fingerprint in reported_fingerprints:
+                continue
+                
+            reported_fingerprints.add(fingerprint)
+            
             mismatch_report.append(f"\nContent Difference #{i} ({mismatch['type']}):")
             mismatch_report.append(show_mismatch_context(original_tokens, improved_tokens, mismatch))
     
@@ -242,192 +271,6 @@ def post_process_improved_markdown(markdown_text):
     markdown_text = re.sub(r'(#+\s+)\[+([^\]]+)\]+(\s*(?:\n|$))', r'\1\2\3', markdown_text)
     
     return markdown_text
-
-
-def ensure_libreoffice_running(port=2002):
-    """Ensure LibreOffice is running in listening mode."""
-    if not UNO_AVAILABLE:
-        logger.error("python-uno is not installed. Cannot use LibreOffice conversion.")
-        return False
-        
-    try:
-        # Try to connect to LibreOffice
-        local_context = uno.getComponentContext()
-        resolver = local_context.ServiceManager.createInstanceWithContext(
-            "com.sun.star.bridge.UnoUrlResolver", local_context)
-        resolver.resolve(f"uno:socket,host=localhost,port={port};urp;StarOffice.ComponentContext")
-        logger.info("LibreOffice is already running in listening mode")
-        return True
-    except Exception:
-        # Start LibreOffice in listening mode
-        logger.info("Starting LibreOffice in listening mode")
-        try:
-            # Use subprocess.Popen to start LibreOffice in background
-            subprocess.Popen([
-                'soffice',
-                '--accept=socket,host=localhost,port=2002;urp;',
-                '--headless',
-                '--nocrashreport',
-                '--nodefault',
-                '--nofirststartwizard',
-                '--nolockcheck',
-                '--nologo',
-                '--norestore'
-            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            # Give it a moment to start
-            time.sleep(3)
-            return True
-        except Exception as e:
-            logger.error(f"Failed to start LibreOffice: {e}")
-            return False
-
-def convert_to_pdf_with_libreoffice(input_file, output_dir=None):
-    """
-    Convert various document formats to PDF using LibreOffice.
-    Supported formats include: doc, docx, odt, rtf, txt, etc.
-    
-    Args:
-        input_file: Path to the input document
-        output_dir: Directory to save the PDF (defaults to same directory as input)
-        
-    Returns:
-        Path to the generated PDF or None if conversion failed
-    """
-    if not UNO_AVAILABLE:
-        logger.error("python-uno is not installed. Cannot use LibreOffice conversion.")
-        return None
-        
-    if not os.path.exists(input_file):
-        logger.error(f"Input file does not exist: {input_file}")
-        return None
-        
-    # Determine output path
-    if output_dir is None:
-        output_dir = os.path.dirname(input_file)
-    
-    base_name = os.path.splitext(os.path.basename(input_file))[0]
-    output_file = os.path.join(output_dir, f"{base_name}.pdf")
-    
-    # Ensure LibreOffice is running
-    if not ensure_libreoffice_running():
-        logger.error("Could not start LibreOffice. Is it installed?")
-        return None
-    
-    try:
-        # Get the component context
-        local_context = uno.getComponentContext()
-        
-        # Create desktop service
-        resolver = local_context.ServiceManager.createInstanceWithContext(
-            "com.sun.star.bridge.UnoUrlResolver", local_context)
-        
-        # Connect to running LibreOffice instance
-        context = resolver.resolve("uno:socket,host=localhost,port=2002;urp;StarOffice.ComponentContext")
-        desktop = context.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", context)
-        
-        # Convert paths to URLs
-        url_in = uno.systemPathToFileUrl(os.path.abspath(input_file))
-        url_out = uno.systemPathToFileUrl(os.path.abspath(output_file))
-        
-        # Load the document
-        logger.info(f"Loading document: {input_file}")
-        doc = desktop.loadComponentFromURL(url_in, "_blank", 0, ())
-        
-        # Set properties for PDF export
-        properties = []
-        
-        # PDF export properties
-        p = PropertyValue()
-        p.Name = "FilterName"
-        p.Value = "writer_pdf_Export"
-        properties.append(p)
-        
-        # Save the document as PDF
-        logger.info(f"Converting to PDF: {output_file}")
-        doc.storeToURL(url_out, tuple(properties))
-        doc.close(True)
-        
-        if os.path.exists(output_file):
-            logger.info(f"Successfully converted to PDF: {output_file}")
-            return output_file
-        else:
-            logger.error("PDF conversion failed: Output file not created")
-            return None
-            
-    except Exception as e:
-        logger.error(f"Error converting to PDF: {str(e)}")
-        return None
-
-def convert_to_pdf_with_unoconv(input_file, output_dir=None):
-    """
-    Fallback method to convert documents to PDF using unoconv command-line tool.
-    
-    Args:
-        input_file: Path to the input document
-        output_dir: Directory to save the PDF (defaults to same directory as input)
-        
-    Returns:
-        Path to the generated PDF or None if conversion failed
-    """
-    if not os.path.exists(input_file):
-        logger.error(f"Input file does not exist: {input_file}")
-        return None
-        
-    # Determine output path
-    if output_dir is None:
-        output_dir = os.path.dirname(input_file)
-    
-    base_name = os.path.splitext(os.path.basename(input_file))[0]
-    output_file = os.path.join(output_dir, f"{base_name}.pdf")
-    
-    try:
-        logger.info(f"Converting to PDF using unoconv: {input_file}")
-        subprocess.run(['unoconv', '-f', 'pdf', '-o', output_dir, input_file], 
-                      check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        
-        if os.path.exists(output_file):
-            logger.info(f"Successfully converted to PDF: {output_file}")
-            return output_file
-        else:
-            logger.error("PDF conversion failed: Output file not created")
-            return None
-    except subprocess.CalledProcessError as e:
-        logger.error(f"unoconv conversion failed: {e}")
-        return None
-    except FileNotFoundError:
-        logger.error("unoconv not found. Please install it with: apt-get install unoconv")
-        return None
-
-def convert_document_to_pdf(input_file, output_dir=None):
-    """
-    Convert a document to PDF using available methods.
-    Tries LibreOffice UNO API first, then falls back to unoconv.
-    
-    Args:
-        input_file: Path to the input document
-        output_dir: Directory to save the PDF (defaults to same directory as input)
-        
-    Returns:
-        Path to the generated PDF or None if conversion failed
-    """
-    # Check if the file is already a PDF
-    if input_file.lower().endswith('.pdf'):
-        logger.info(f"File is already a PDF: {input_file}")
-        return input_file
-        
-    # Try conversion with LibreOffice UNO API if available
-    if UNO_AVAILABLE:
-        pdf_path = convert_to_pdf_with_libreoffice(input_file, output_dir)
-        if pdf_path:
-            return pdf_path
-    else:
-        logger.info("python-uno not available, skipping LibreOffice UNO API conversion")
-    
-    # Try unoconv as fallback
-    logger.info("Trying unoconv for PDF conversion")
-    pdf_path = convert_to_pdf_with_unoconv(input_file, output_dir)
-    
-    return pdf_path
 
 
 def process_document_with_ocr(api_key, document_path, max_retries=3, retry_delay=2, debug=False):
@@ -597,23 +440,22 @@ def improve_markdown_with_gpt(api_key, markdown_content):
     client = openai.OpenAI(api_key=api_key)
     
     prompt = """
-    Read the following Markdown and improve ONLY the formatting while preserving ALL original content exactly as written.
+Read the Markdown below and **only** fix formatting—never touch any words or typos.
 
-    1. Fix ONLY markdown formatting issues - do not change any words or fix any typos
-    2. Make sure that headings descend in size logically (# > ## > ###)
-    3. If you see raw URLs, change them into links with the EXACT SAME TEXT as link text
-    4. Do Not Remove any Links (reformatting is ok)
-    5. Format things that look like lists (ordered or unordered) into proper markdown lists
-    6. Keep all original content including typos, repeated words, grammatical errors, etc.
-    7. Do NOT make ANY content edits, not even minor ones like fixing duplicate words
-    8. Do not add '```markdown' or '```' around your response
+1. Normalize headings so they descend logically (`#`, `##`, `###`, …).  
+2. Turn raw URLs into inline links using the same text.  
+3. Format anything that looks like a list into a proper list.  
+4. Convert messy rows (e.g. hyphens, tabs, or multiple spaces separating values) into tables.  
+5. Make the whole thing beautiful and consistent.  
+6. **Do not** wrap your answer in code fences.
 
-    !!! CRITICAL: DO NOT CHANGE ANY WORDS OR FIX ANY TYPOS, NO MATTER HOW OBVIOUS !!!
-    !!! PRESERVE EXACT ORIGINAL CONTENT, INCLUDING ALL ERRORS AND DUPLICATED WORDS !!!
+**CRITICAL:** Preserve every character, typo, and duplicate exactly as is.
 
-    Here is the content to improve:
+---
 
-    {markdown}
+Here's the content to reformat:
+
+{markdown}
     """
     
     try:
@@ -635,6 +477,52 @@ def improve_markdown_with_gpt(api_key, markdown_content):
         print(f"Error using OpenAI API: {e}")
         return None
 
+def print_mismatch_report(comparison_result, detailed=True):
+    """
+    Print a mismatch report with deduplication.
+    This function ensures we only print each unique mismatch once.
+    """
+    if not comparison_result['mismatches']:
+        print("No content differences detected. All words are preserved exactly in the final version.")
+        return
+    
+    # Create a set to track printed mismatch fingerprints
+    printed_fingerprints = set()
+    
+    print(f"\nFound {len(comparison_result['mismatches'])} content differences (these should be investigated):")
+    
+    # Extract the mismatch details from the report
+    if detailed:
+        report_lines = comparison_result['mismatch_report'].split("\n")
+        i = 0
+        while i < len(report_lines):
+            line = report_lines[i]
+            
+            if line.startswith("Content Difference #"):
+                # Extract the mismatch type
+                mismatch_header = line
+                i += 1
+                
+                # The next two lines should be the original and improved
+                original_line = report_lines[i] if i < len(report_lines) else ""
+                i += 1
+                improved_line = report_lines[i] if i < len(report_lines) else ""
+                i += 1
+                
+                # Create a fingerprint for this mismatch
+                fingerprint = f"{original_line}|{improved_line}"
+                
+                # Only print this mismatch if we haven't printed it before
+                if fingerprint not in printed_fingerprints:
+                    printed_fingerprints.add(fingerprint)
+                    print(f"\n{mismatch_header}")
+                    print(original_line)
+                    print(improved_line)
+            else:
+                i += 1
+    else:
+        print("Run with --detailed-comparison to see content differences.")
+
 def main():
     parser = argparse.ArgumentParser(description='Convert Word to Markdown and improve formatting')
     parser.add_argument('input_file', help='Path to input Word document')
@@ -642,17 +530,13 @@ def main():
     parser.add_argument('--api-key', help='OpenAI API key')
     parser.add_argument('--mistral-api-key', help='Mistral API key for OCR')
     parser.add_argument('--skip-gpt', action='store_true', help='Skip GPT improvement step')
-    parser.add_argument('--skip-html', action='store_true', help='Skip HTML conversion step')
     parser.add_argument('--show-diff', action='store_true', help='Show diff between original and improved markdown')
-    parser.add_argument('--save-report', action='store_true', help='Save detailed comparison report to file')
     # By default, detailed comparison is enabled. To disable it, use --no-detailed-comparison.
     parser.add_argument('--no-detailed-comparison', dest='detailed_comparison', action='store_false', help='Disable detailed token-by-token comparison')
     parser.set_defaults(detailed_comparison=True)
     # New flag: by default, only the improved HTML file will be saved.
     # Use --keep-markdown to keep the intermediate markdown files.
     parser.add_argument('--keep-markdown', action='store_true', help='Keep the intermediate markdown files (default: do not keep them)')
-    parser.add_argument('--use-pandoc', action='store_true', help='Use pandoc instead of OCR for document conversion')
-    parser.add_argument('--use-libreoffice', action='store_true', help='Use LibreOffice to convert documents to PDF before OCR')
     parser.add_argument('--debug', action='store_true', help='Enable debug logging')
     
     args = parser.parse_args()
@@ -668,25 +552,10 @@ def main():
     # Get Mistral API key
     mistral_api_key = args.mistral_api_key or os.environ.get("MISTRAL_API_KEY")
     
-    # Check if the input is a document that needs conversion to PDF
-    document_extensions = ['.doc', '.docx', '.odt', '.rtf', '.txt', '.wpd', '.wps']
     input_file = args.input_file
     
-    if args.use_libreoffice and any(input_file.lower().endswith(ext) for ext in document_extensions):
-        logger.info(f"Converting document to PDF using LibreOffice: {input_file}")
-        pdf_path = convert_document_to_pdf(input_file)
-        if pdf_path:
-            # Now use the PDF with Mistral
-            input_file = pdf_path
-            logger.info(f"Using converted PDF for further processing: {input_file}")
-        else:
-            logger.error("Document conversion failed. Proceeding with original file.")
-    
-    # Determine conversion method
-    use_ocr = not args.use_pandoc and mistral_api_key
-    
-    # Convert document to markdown
-    if use_ocr:
+    # Always try to use Mistral OCR first, fallback to pandoc if necessary
+    if mistral_api_key:
         print(f"Converting {input_file} using Mistral OCR...")
         ocr_response = process_document_with_ocr(mistral_api_key, input_file, debug=args.debug)
         if ocr_response:
@@ -698,10 +567,7 @@ def main():
             print("OCR processing failed. Falling back to pandoc...")
             original_markdown = convert_docx_to_markdown(input_file, args.output)
     else:
-        if args.use_pandoc:
-            print(f"Converting {input_file} using pandoc (as requested)...")
-        else:
-            print(f"Converting {input_file} using pandoc (Mistral API key not provided)...")
+        print(f"Mistral API key not provided. Converting {input_file} using pandoc...")
         original_markdown = convert_docx_to_markdown(input_file, args.output)
     
     if original_markdown is None:
@@ -743,22 +609,18 @@ def main():
                     f.write(improved_markdown)
                 print(f"Improved markdown saved to {improved_output}")
 
-    # Convert the final markdown (original or improved) to HTML using pypandoc.convert_text.
-    # This will be the only output file if --keep-markdown is not used.
-    if not args.skip_html:
-        html_output = f"{os.path.splitext(args.input_file)[0]}_improved.html"
-        try:
-            import pypandoc
-            extra_args = ["--standalone", "--metadata", "title=Document"]
-            html_content = pypandoc.convert_text(final_markdown, 'html', format='markdown', extra_args=extra_args)
-            with open(html_output, 'w', encoding='utf-8') as f:
-                f.write(html_content)
-            print(f"HTML conversion complete. HTML saved to {html_output}")
-        except Exception as e:
-            print(f"Error converting markdown to HTML: {e}")
-            return
-    else:
-        html_output = None
+    # Always convert the final markdown to HTML
+    html_output = f"{os.path.splitext(args.input_file)[0]}_improved.html"
+    try:
+        import pypandoc
+        extra_args = ["--standalone", "--metadata", "title=Document"]
+        html_content = pypandoc.convert_text(final_markdown, 'html', format='markdown', extra_args=extra_args)
+        with open(html_output, 'w', encoding='utf-8') as f:
+            f.write(html_content)
+        print(f"HTML conversion complete. HTML saved to {html_output}")
+    except Exception as e:
+        print(f"Error converting markdown to HTML: {e}")
+        return
 
     # Compare texts to ensure no content was lost
     comparison_result = compare_texts(original_markdown, final_markdown)
@@ -777,11 +639,13 @@ def main():
             print(f"  - '{word}' appears {count} more times")
         print("\nThis should not happen! Please review the output carefully.")
 
+    # Use the dedicated function to print mismatch report without duplication
     if args.detailed_comparison and comparison_result['mismatches']:
-        print("\n===== CONTENT DIFFERENCES =====")
-        print(comparison_result['mismatch_report'])
-    
-    # No pandoc comparison - removed
+        print_mismatch_report(comparison_result, detailed=True)
+    elif comparison_result['mismatches']:
+        print(f"\nFound {len(comparison_result['mismatches'])} content differences.")
+        print("To see details, run without --no-detailed-comparison")
+        print("\nIMPORTANT: Content differences should not occur! This needs investigation.")
     
     if args.show_diff:
         print("\n===== UNIFIED LINE DIFF =====")
@@ -792,34 +656,6 @@ def main():
             n=3
         )
         print('\n'.join(diff))
-    
-    if comparison_result['mismatches']:
-        print(f"\nFound {len(comparison_result['mismatches'])} content differences.")
-        if not args.detailed_comparison:
-            print("To see details, run without --no-detailed-comparison")
-        print("\nIMPORTANT: Content differences should not occur! This needs investigation.")
-    else:
-        print("\nNo content differences detected. All words are preserved exactly in the final version.")
-
-    if args.save_report:
-        comparison_report_path = f"{os.path.splitext(args.input_file)[0]}_comparison_report.txt"
-        try:
-            with open(comparison_report_path, 'w', encoding='utf-8') as f:
-                f.write("===== CONTENT COMPARISON REPORT =====\n\n")
-                f.write("This report shows any content differences between the original and final versions\n\n")
-                f.write(comparison_result['mismatch_report'])
-                if comparison_result['missing_words']:
-                    f.write("\n\n===== MISSING WORDS =====\n\n")
-                    for word, count in comparison_result['missing_words'].items():
-                        f.write(f"  - '{word}' appears {count} fewer times\n")
-                if comparison_result.get('added_words'):
-                    f.write("\n\n===== ADDED WORDS =====\n\n")
-                    for word, count in comparison_result['added_words'].items():
-                        f.write(f"  - '{word}' appears {count} more times\n")
-                    
-            print(f"\nDetailed comparison report saved to {comparison_report_path}")
-        except Exception as e:
-            print(f"Error writing comparison report: {e}")
 
 if __name__ == "__main__":
     main()
