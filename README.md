@@ -8,7 +8,7 @@ The Anything to HTML Converter aims to simplify the process of converting docume
 
 The tool performs the following key steps:
 1.  Converts input documents (e.g., `.docx`) to Markdown. It prioritizes using Mistral AI for OCR if a Mistral API key is provided. If not, or if OCR fails, it falls back to using Pandoc for conversion.
-2.  Optionally improves the Markdown formatting using OpenAI's GPT-4o-mini model (if an OpenAI API key is provided and the step is not skipped). The improvement focuses on formatting normalization (headings, lists, tables, URL-to-link conversion) **without altering the textual content**.
+2.  Improves the Markdown formatting using OpenAI's GPT-4o-mini model (requires an OpenAI API key). The improvement focuses on formatting normalization (headings, lists, tables, URL-to-link conversion) **without altering the textual content**.
 3.  Converts the final Markdown (either original or GPT-improved) to a standalone HTML file using Pandoc.
 4.  Performs a detailed comparison between the original Markdown (pre-GPT improvement) and the final Markdown (post-GPT improvement, if applied) to verify that no textual content was inadvertently changed, added, or deleted.
 5.  Generates reports on content differences, if any are found.

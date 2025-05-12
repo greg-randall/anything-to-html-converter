@@ -574,7 +574,6 @@ def main():
     parser.add_argument('--output', help='Path to output Markdown file (default: input filename with .md extension)')
     parser.add_argument('--api-key', help='OpenAI API key')
     parser.add_argument('--mistral-api-key', help='Mistral API key for OCR')
-    parser.add_argument('--skip-gpt', action='store_true', help='Skip GPT improvement step')
     parser.add_argument('--show-diff', action='store_true', help='Show diff between original and improved markdown')
     # By default, detailed comparison is enabled. To disable it, use --no-detailed-comparison.
     parser.add_argument('--no-detailed-comparison', dest='detailed_comparison', action='store_false', help='Disable detailed token-by-token comparison')
@@ -627,32 +626,27 @@ def main():
         except Exception as e:
             print(f"Warning: could not remove temporary markdown file: {e}")
     
-    # If skip_gpt is True, use the original markdown
-    if args.skip_gpt:
-        print("Skipped GPT improvement.")
+    # Check if API key is provided
+    if not openai_api_key:
+        print("OpenAI API key is required for GPT improvement.")
+        print("Either pass it with --api-key or set the OPENAI_API_KEY environment variable.")
+        return
+
+    # Improve markdown with GPT
+    print("Improving markdown with GPT-4o-mini...")
+    improved_markdown = improve_markdown_with_gpt(openai_api_key, original_markdown)
+    if improved_markdown is None:
+        print("GPT improvement failed. Using original markdown.")
         final_markdown = original_markdown
     else:
-        # Check if API key is provided
-        if not openai_api_key:
-            print("OpenAI API key is required for GPT improvement.")
-            print("Either pass it with --api-key or set the OPENAI_API_KEY environment variable.")
-            return
-
-        # Improve markdown with GPT
-        print("Improving markdown with GPT-4o-mini...")
-        improved_markdown = improve_markdown_with_gpt(openai_api_key, original_markdown)
-        if improved_markdown is None:
-            print("GPT improvement failed. Using original markdown.")
-            final_markdown = original_markdown
-        else:
-            final_markdown = improved_markdown
-            # Optionally, if you want to keep the improved markdown file,
-            # write it to disk only if --keep-markdown is provided.
-            if args.keep_markdown:
-                improved_output = f"{os.path.splitext(args.output)[0]}_improved.md"
-                with open(improved_output, 'w', encoding='utf-8') as f:
-                    f.write(improved_markdown)
-                print(f"Improved markdown saved to {improved_output}")
+        final_markdown = improved_markdown
+        # Optionally, if you want to keep the improved markdown file,
+        # write it to disk only if --keep-markdown is provided.
+        if args.keep_markdown:
+            improved_output = f"{os.path.splitext(args.output)[0]}_improved.md"
+            with open(improved_output, 'w', encoding='utf-8') as f:
+                f.write(improved_markdown)
+            print(f"Improved markdown saved to {improved_output}")
 
     # Always convert the final markdown to HTML
     html_output = f"{os.path.splitext(args.input_file)[0]}_improved.html"
