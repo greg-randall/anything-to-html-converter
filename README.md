@@ -1,7 +1,5 @@
 # Anything to HTML Converter
 
-**Project URL:** [https://github.com/greg-randall/anything-to-html-converter](https://github.com/greg-randall/anything-to-html-converter)
-
 A tool for converting various document formats (including Word documents and OCR-capable image-based files) into clean, web-friendly HTML, with a strong emphasis on preserving content integrity.
 
 ## Overview
@@ -13,9 +11,9 @@ The tool follows these key steps:
 1.  **Initial Conversion to Markdown:** Input documents (e.g., `.docx`, PDFs, images) are first converted to Markdown.
     * If a Mistral API key is provided, the script prioritizes Mistral AI for its OCR capabilities, which can handle a wider range of file types.
     * If a Mistral API key is not available, or if OCR processing fails, the script falls back to using Pandoc for conversion (primarily for formats like `.docx`).
-2.  **Markdown Refinement (Optional but Recommended):** The generated Markdown can be processed by OpenAI's GPT-4o-mini model (requires an OpenAI API key). This step focuses *exclusively* on improving formatting – normalizing headings, lists, tables, and converting raw URLs to clickable links – **without altering the textual content, including typos or original phrasing.**
-3.  **Conversion to HTML:** The final Markdown (either the original or the GPT-improved version) is converted into a standalone HTML file using Pandoc.
-4.  **Content Integrity Check:** A rigorous comparison is performed between the Markdown content *before* GPT refinement and *after* GPT refinement (if applied). This step tokenizes the text and identifies any changes, additions, or deletions to the actual content, helping to ensure that the LLM has only adjusted formatting.
+2.  **Markdown Refinement with GPT-4o-mini (Requires OpenAI API Key):** An OpenAI API key must be provided to proceed. The script then attempts to refine the Markdown's formatting using GPT-4o-mini. This step focuses *exclusively* on improving formatting – normalizing headings, lists, tables, and converting raw URLs to clickable links – **without altering the textual content, including typos or original phrasing.** If an API key is provided but the GPT refinement process itself encounters an error, the script will fall back to using the original, unrefined Markdown for the subsequent HTML conversion. If no OpenAI API key is available, the script will notify the user and exit before this step.
+3.  **Conversion to HTML:** The final Markdown (either the original or the GPT-improved/fallback original version) is converted into a standalone HTML file using Pandoc.
+4.  **Content Integrity Check:** A rigorous comparison is performed between the Markdown content *before* GPT refinement and *after* GPT refinement (if successfully applied). This step tokenizes the text and identifies any changes, additions, or deletions to the actual content, helping to ensure that the LLM has only adjusted formatting.
 5.  **Reporting:** Detailed reports are generated if any content discrepancies are found during the integrity check.
 
 ### Why Markdown as an Intermediary?
@@ -32,6 +30,7 @@ The script then uses Pandoc, a deterministic conversion tool, for the final, rel
 
 * **Python 3.x**
 * **Pandoc:** Must be installed and accessible in your system's PATH. Pandoc is used for `.docx` to Markdown conversion (as a fallback or primary method if not using OCR via Mistral) and for the final Markdown to HTML conversion.
+* **OpenAI API Key:** Required for the GPT-4o-mini Markdown refinement step.
 * **Python Libraries:**
     * `openai` (for GPT-based Markdown improvement)
     * `pypandoc` (Python wrapper for Pandoc)
@@ -76,14 +75,14 @@ The script then uses Pandoc, a deterministic conversion tool, for the final, rel
     pip install -r requirements.txt
     ```
 
-4.  **API Keys (Optional but Recommended):**
-    * **OpenAI API Key:** For Markdown improvement using GPT-4o-mini.
-    * **Mistral API Key:** For using Mistral AI's OCR capabilities.
+4.  **Set Up API Keys:**
+    * **OpenAI API Key (Required):** For Markdown improvement using GPT-4o-mini. The script will not produce an HTML file without it.
+    * **Mistral API Key (Optional):** For using Mistral AI's OCR capabilities for a wider range of input files. If not provided, Pandoc will be used for initial conversion.
     You can provide these keys via command-line arguments (`--api-key` for OpenAI, `--mistral-api-key` for Mistral) or by setting them as environment variables (`OPENAI_API_KEY`, `MISTRAL_API_KEY`).
 
 ## Usage
 
 ### Basic Command
-To convert a document, run the script with the path to your input file:
+To convert a document, run the script with the path to your input file and your OpenAI API key:
 ```bash
-python anything-to-html-converter.py your_document.docx
+python anything-to-html-converter.py your_document.docx --api-key YOUR_OPENAI_KEY
