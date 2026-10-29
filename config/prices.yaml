@@ -1,0 +1,49 @@
+# List prices used to estimate the cost of each model call (doc_improver/pricing.py).
+#
+# The APIs return token counts only, so cost = tokens x price.
+#
+# One entry per model name, exactly as the endpoint calls it (the --model / --alt-text-model value). Prices are USD per 1M tokens:
+#   input        uncached input tokens
+#   output       output tokens (thinking tokens are counted in output_tokens, so they are priced as output)
+#   cache_write  input tokens written to the prompt cache
+#   cache_read   input tokens read from the prompt cache
+#   source       where the prices came from
+# Optional: threshold_input_tokens and above_threshold. When a request's input tokens (uncached input + cache
+# write + cache read) exceed threshold_input_tokens, the above_threshold prices apply to that whole request.
+#
+# A blank price, or a model that is not listed, is not an error: the cost of a call that needs it is
+# printed as "cost unknown (...)". Fill in a blank to have it counted.
+
+claude-sonnet-5-5:
+  source: Anthropic standard list price, entered 2026-10-28
+  input: 2.00
+  output: 10.00
+  cache_write:
+  cache_read:
+
+claude-haiku-5-5:
+  source: Anthropic standard list price, entered 2026-10-28
+  input: 0.10
+  output: 0.50
+  cache_write:
+  cache_read:
+  threshold_input_tokens: 100000
+  above_threshold:
+    input: 0.50
+    output: 2.50
+    cache_write:
+    cache_read:
+
+claude-opus-5-5:
+  source: Anthropic standard list price, entered 2026-10-28
+  input: 4.00
+  output: 20.00
+  cache_write:
+  cache_read:
+
+gpt-6.1-terra:
+  source: OpenAI list price (developers.openai.com model page), entered 2026-10-29
+  input: 1.00
+  output: 5.00
+  cache_write:
+  cache_read: 0.05

@@ -1,0 +1,18 @@
+# Allowlist: ignore everything, then un-ignore only the project's own files.
+# A new kind of file has to be added below before git will see it.
+*
+!*/
+
+!/.gitignore
+!/README.md
+!/blank.env
+!/anything-to-anything.py
+!/doc_improver/*.py
+!/config/*.yaml
+!/config/prompts/*.yaml
+!/tests/*.py
+
+# Never, even if a rule above matches
+.env
+old/
+__pycache__/
