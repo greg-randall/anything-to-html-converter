@@ -1,7 +1,0 @@
-*.doc
-*.docx
-*.html
-
-*.md
-!README.md
-.aider*
