@@ -5,6 +5,7 @@
 
 !/.gitignore
 !/README.md
+!/LICENSE
 !/blank.env
 !/anything-to-anything.py
 !/doc_improver/*.py

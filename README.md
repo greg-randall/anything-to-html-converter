@@ -236,3 +236,7 @@ The suite runs offline in a couple of seconds:
 | `cost unknown (no price for X in prices.yaml)` | Add an entry for model `X` to `config/prices.yaml` |
 | "pandoc could not find N image(s)" | An HTML/Markdown input links to images that don't exist relative to the input file |
 | Need to see what was sent to the model | Re-run with `--verbose` |
+
+## License
+
+AGPL-3.0. See [LICENSE](LICENSE). You may use, change and share this project; if you distribute a modified version, or run one for others to use over a network, you must release its source under the same license.
